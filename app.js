@@ -8,12 +8,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Configuración de la base de datos
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+// Ruta de prueba
+app.get('/', (req, res) => {
+  res.json({ message: 'API de Rondas Musicales' });
 });
 
 // Rutas básicas
