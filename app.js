@@ -114,25 +114,35 @@ app.post('/api/rondas', async (req, res) => {
 });
 
 // Obtener rondas
-app.get('/api/rondas', async (req, res) => {
- try {
-   const result = await pool.query(
-     `SELECT r.*, 
-       COUNT(DISTINCT rp.user_id) as total_participants,
-       COUNT(DISTINCT v.user_id) as total_votes
-     FROM rondas r
-     LEFT JOIN ronda_participants rp ON r.id = rp.ronda_id
-     LEFT JOIN songs s ON r.id = s.ronda_id
-     LEFT JOIN votes v ON s.id = v.song_id
-     GROUP BY r.id
-     ORDER BY r.created_at DESC`
-   );
+app.get('/api/rondas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(`
+      SELECT r.*, 
+        json_agg(json_build_object(
+          'id', s.id,
+          'title', s.title,
+          'artist', s.artist,
+          'duration', s.duration,
+          'votes', (
+            SELECT COUNT(*) FROM votes v WHERE v.song_id = s.id
+          )
+        )) as songs
+      FROM rondas r
+      LEFT JOIN songs s ON r.id = s.ronda_id
+      WHERE r.id = $1
+      GROUP BY r.id
+    `, [id]);
 
-   res.json(result.rows);
- } catch (error) {
-   console.error('Error getting rondas:', error);
-   res.status(500).json({ error: 'Error al obtener las rondas' });
- }
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ronda no encontrada' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error getting ronda:', error);
+    res.status(500).json({ error: 'Error al obtener la ronda' });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
