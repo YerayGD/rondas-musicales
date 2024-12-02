@@ -61,6 +61,33 @@ app.post('/api/users/login', async (req, res) => {
     }
 });
 
+app.post('/api/rondas', async (req, res) => {
+  try {
+    const { name, endDate, participants } = req.body;
+    const result = await pool.query(
+      'INSERT INTO rondas (name, end_date) VALUES ($1, $2) RETURNING id',
+      [name, endDate]
+    );
+    
+    const rondaId = result.rows[0].id;
+    
+    // Añadir participantes
+    if (participants && participants.length > 0) {
+      await Promise.all(participants.map(userId => 
+        pool.query(
+          'INSERT INTO ronda_participants (ronda_id, user_id) VALUES ($1, $2)',
+          [rondaId, userId]
+        )
+      ));
+    }
+
+    res.status(201).json({ id: rondaId });
+  } catch (error) {
+    console.error('Error al crear ronda:', error);
+    res.status(500).json({ error: 'Error al crear la ronda' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Servidor ejecutándose en el puerto ${PORT}`);
