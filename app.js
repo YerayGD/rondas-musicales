@@ -150,3 +150,64 @@ app.listen(PORT, () => {
  console.log(`Servidor ejecutándose en el puerto ${PORT}`);
  console.log('Database URL:', process.env.DATABASE_URL ? 'Configurada' : 'No configurada');
 });
+
+// Proponer canción
+app.post('/api/rondas/:rondaId/songs', async (req, res) => {
+  try {
+    const { rondaId } = req.params;
+    const { title, artist, duration } = req.body;
+    const userId = 1; // Por ahora usaremos el usuario de prueba
+
+    // Verificar que la ronda existe y está activa
+    const rondaCheck = await pool.query(
+      'SELECT * FROM rondas WHERE id = $1 AND status = $2',
+      [rondaId, 'voting']
+    );
+
+    if (rondaCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'Ronda no encontrada o no está en fase de votación' });
+    }
+
+    // Insertar la canción
+    const result = await pool.query(
+      'INSERT INTO songs (ronda_id, title, artist, duration, proposed_by) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [rondaId, title, artist, duration, userId]
+    );
+
+    // Devolver la canción creada
+    res.status(201).json(result.rows[0]);
+
+  } catch (error) {
+    console.error('Error al proponer canción:', error);
+    res.status(500).json({ 
+      error: 'Error al proponer la canción',
+      details: error.message
+    });
+  }
+});
+
+// Obtener canciones de una ronda
+app.get('/api/rondas/:rondaId/songs', async (req, res) => {
+  try {
+    const { rondaId } = req.params;
+    
+    const result = await pool.query(
+      `SELECT s.*, 
+        COUNT(v.user_id) as votes_count,
+        u.username as proposed_by_username
+      FROM songs s
+      LEFT JOIN votes v ON s.id = v.song_id
+      LEFT JOIN users u ON s.proposed_by = u.id
+      WHERE s.ronda_id = $1
+      GROUP BY s.id, u.username
+      ORDER BY s.created_at DESC`,
+      [rondaId]
+    );
+
+    res.json(result.rows);
+
+  } catch (error) {
+    console.error('Error al obtener canciones:', error);
+    res.status(500).json({ error: 'Error al obtener las canciones' });
+  }
+});
