@@ -202,3 +202,44 @@ app.listen(PORT, () => {
  console.log(`Servidor ejecutándose en el puerto ${PORT}`);
  console.log('Database URL:', process.env.DATABASE_URL ? 'Configurada' : 'No configurada');
 });
+
+// Votar canción
+app.post('/api/rondas/:rondaId/songs/:songId/vote', async (req, res) => {
+  try {
+    const { rondaId, songId } = req.params;
+    const { score } = req.body;
+    const userId = 1; // Por ahora usaremos el usuario de prueba
+
+    // Verificar que la ronda está en fase de votación
+    const rondaCheck = await pool.query(
+      'SELECT * FROM rondas WHERE id = $1 AND status = $2',
+      [rondaId, 'voting']
+    );
+
+    if (rondaCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'Ronda no encontrada o no está en fase de votación' });
+    }
+
+    // Verificar si el usuario ya votó esta canción
+    const voteCheck = await pool.query(
+      'SELECT * FROM votes WHERE song_id = $1 AND user_id = $2',
+      [songId, userId]
+    );
+
+    if (voteCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'Ya has votado esta canción' });
+    }
+
+    // Registrar el voto
+    await pool.query(
+      'INSERT INTO votes (song_id, user_id, score) VALUES ($1, $2, $3)',
+      [songId, userId, score]
+    );
+
+    res.json({ message: 'Voto registrado con éxito' });
+
+  } catch (error) {
+    console.error('Error al votar:', error);
+    res.status(500).json({ error: 'Error al registrar el voto' });
+  }
+});
