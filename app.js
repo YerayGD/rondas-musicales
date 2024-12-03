@@ -1,172 +1,193 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { rondasService } from '../services/rondasService';
-import ProponerCancionForm from '../components/rondas/ProponerCancionForm';
-import VotarCancionForm from '../components/rondas/VotarCancionForm';
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
-export default function RondaDetalles() {
- const { id } = useParams();
- const navigate = useNavigate();
- const [ronda, setRonda] = useState(null);
- const [loading, setLoading] = useState(true);
- const [error, setError] = useState(null);
- const [showProponerForm, setShowProponerForm] = useState(false);
- const [showVotarForm, setShowVotarForm] = useState(false);
- const [selectedSong, setSelectedSong] = useState(null);
+const app = express();
 
- useEffect(() => {
-   cargarRonda();
- }, [id]);
+// Configuración CORS
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept'],
+  credentials: true
+}));
 
- const cargarRonda = async () => {
-   try {
-     const data = await rondasService.obtenerRonda(id);
-     setRonda(data);
-     setError(null);
-   } catch (error) {
-     console.error('Error al cargar ronda:', error);
-     setError('Error al cargar la información de la ronda');
-   } finally {
-     setLoading(false);
-   }
- };
+app.use(express.json());
 
- const handleVotarClick = (song) => {
-   setSelectedSong(song);
-   setShowVotarForm(true);
- };
+// Configuración base de datos
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
- const handleVoteSuccess = () => {
-   setShowVotarForm(false);
-   setSelectedSong(null);
-   cargarRonda();
- };
+// Ruta de prueba
+app.get('/', (req, res) => {
+  res.json({ message: 'API de Rondas Musicales' });
+});
 
- const formatDate = (dateString) => {
-   return new Date(dateString).toLocaleString('es-ES', {
-     year: 'numeric',
-     month: 'long',
-     day: 'numeric',
-     hour: '2-digit',
-     minute: '2-digit'
-   });
- };
+// Login
+app.post('/api/users/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    console.log('Login attempt with:', email);
 
- if (loading) {
-   return (
-     <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-       <div className="text-gray-500">Cargando...</div>
-     </div>
-   );
- }
+    const result = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
 
- if (error) {
-   return (
-     <div className="min-h-screen bg-gray-100 p-4">
-       <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
-         {error}
-       </div>
-     </div>
-   );
- }
+    if (result.rows.length === 0) {
+      console.log('No user found with email:', email);
+      return res.status(401).json({ error: 'Usuario no encontrado' });
+    }
 
- return (
-   <div className="min-h-screen bg-gray-100">
-     <nav className="bg-white shadow">
-       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-         <div className="flex justify-between h-16">
-           <div className="flex items-center">
-             <button
-               onClick={() => navigate('/dashboard')}
-               className="text-gray-500 hover:text-gray-700 font-medium"
-             >
-               ← Volver al Dashboard
-             </button>
-           </div>
-         </div>
-       </div>
-     </nav>
+    const user = result.rows[0];
+    const token = jwt.sign(
+      { id: user.id, username: user.username },
+      process.env.JWT_SECRET || 'test-secret-key',
+      { expiresIn: '24h' }
+    );
 
-     <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-       {ronda && (
-         <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-           <div className="px-4 py-5 sm:px-6">
-             <h3 className="text-lg leading-6 font-medium text-gray-900">
-               {ronda.name}
-             </h3>
-             <p className="mt-1 max-w-2xl text-sm text-gray-500">
-               Finaliza: {formatDate(ronda.end_date)}
-             </p>
-           </div>
+    console.log('Login successful for:', email);
+    return res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error('Server error:', error);
+    return res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
 
-           <div className="border-t border-gray-200">
-             <div className="px-4 py-5 sm:p-6">
-               <button
-                 onClick={() => setShowProponerForm(true)}
-                 className="mb-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-               >
-                 Proponer Canción
-               </button>
+// Crear ronda
+app.post('/api/rondas', async (req, res) => {
+  try {
+    const { name, endDate } = req.body;
+    const result = await pool.query(
+      'INSERT INTO rondas (name, end_date) VALUES ($1, $2) RETURNING id',
+      [name, endDate]
+    );
+    
+    res.status(201).json({ id: result.rows[0].id });
+  } catch (error) {
+    console.error('Error creating ronda:', error);
+    res.status(500).json({ error: 'Error al crear la ronda' });
+  }
+});
 
-               <div className="mt-6">
-                 <h4 className="text-lg font-medium mb-4">Canciones Propuestas</h4>
-                 {ronda.songs && ronda.songs.length > 0 ? (
-                   <ul className="divide-y divide-gray-200">
-                     {ronda.songs.map((song) => (
-                       <li key={song.id} className="py-4">
-                         <div className="flex justify-between items-center">
-                           <div>
-                             <p className="text-sm font-medium text-gray-900">{song.title}</p>
-                             <p className="text-sm text-gray-500">{song.artist}</p>
-                             <p className="text-xs text-gray-400">Duración: {song.duration}</p>
-                           </div>
-                           <div className="flex items-center space-x-4">
-                             <span className="text-sm text-gray-500">
-                               {song.votes} {song.votes === 1 ? 'voto' : 'votos'}
-                             </span>
-                             <button
-                               onClick={() => handleVotarClick(song)}
-                               className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-indigo-600 hover:bg-indigo-50"
-                             >
-                               Votar
-                             </button>
-                           </div>
-                         </div>
-                       </li>
-                     ))}
-                   </ul>
-                 ) : (
-                   <p className="text-gray-500 text-center">No hay canciones propuestas aún</p>
-                 )}
-               </div>
-             </div>
-           </div>
-         </div>
-       )}
-     </main>
+// Obtener todas las rondas
+app.get('/api/rondas', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT r.*, 
+        COUNT(DISTINCT s.id) as songs_count,
+        COUNT(DISTINCT v.user_id) as votes_count
+      FROM rondas r
+      LEFT JOIN songs s ON r.id = s.ronda_id
+      LEFT JOIN votes v ON s.id = v.song_id
+      GROUP BY r.id
+      ORDER BY r.created_at DESC
+    `);
 
-     {showProponerForm && (
-       <ProponerCancionForm
-         rondaId={id}
-         onClose={() => setShowProponerForm(false)}
-         onSuccess={() => {
-           setShowProponerForm(false);
-           cargarRonda();
-         }}
-       />
-     )}
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting rondas:', error);
+    res.status(500).json({ error: 'Error al obtener las rondas' });
+  }
+});
 
-     {showVotarForm && selectedSong && (
-       <VotarCancionForm
-         rondaId={id}
-         songId={selectedSong.id}
-         onClose={() => {
-           setShowVotarForm(false);
-           setSelectedSong(null);
-         }}
-         onSuccess={handleVoteSuccess}
-       />
-     )}
-   </div>
- );
-}
+// Obtener una ronda específica
+app.get('/api/rondas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(`
+      SELECT r.*, 
+        json_agg(
+          json_build_object(
+            'id', s.id,
+            'title', s.title,
+            'artist', s.artist,
+            'duration', s.duration,
+            'votes', COUNT(v.user_id)
+          )
+        ) as songs
+      FROM rondas r
+      LEFT JOIN songs s ON r.id = s.ronda_id
+      LEFT JOIN votes v ON s.id = v.song_id
+      WHERE r.id = $1
+      GROUP BY r.id
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ronda no encontrada' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error getting ronda:', error);
+    res.status(500).json({ error: 'Error al obtener la ronda' });
+  }
+});
+
+// Proponer canción
+app.post('/api/rondas/:rondaId/songs', async (req, res) => {
+  try {
+    const { rondaId } = req.params;
+    const { title, artist, duration } = req.body;
+    const userId = 1; // Usuario de prueba
+
+    const result = await pool.query(
+      'INSERT INTO songs (ronda_id, title, artist, duration, proposed_by) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [rondaId, title, artist, duration, userId]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error proposing song:', error);
+    res.status(500).json({ error: 'Error al proponer la canción' });
+  }
+});
+
+// Votar canción
+app.post('/api/rondas/:rondaId/songs/:songId/vote', async (req, res) => {
+  try {
+    const { rondaId, songId } = req.params;
+    const { score } = req.body;
+    const userId = 1; // Usuario de prueba
+
+    // Verificar voto existente
+    const voteCheck = await pool.query(
+      'SELECT * FROM votes WHERE song_id = $1 AND user_id = $2',
+      [songId, userId]
+    );
+
+    if (voteCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'Ya has votado esta canción' });
+    }
+
+    // Registrar voto
+    await pool.query(
+      'INSERT INTO votes (song_id, user_id, score) VALUES ($1, $2, $3)',
+      [songId, userId, score]
+    );
+
+    res.json({ message: 'Voto registrado con éxito' });
+  } catch (error) {
+    console.error('Error voting:', error);
+    res.status(500).json({ error: 'Error al registrar el voto' });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Servidor ejecutándose en el puerto ${PORT}`);
+  console.log('Database URL:', process.env.DATABASE_URL ? 'Configurada' : 'No configurada');
+});
