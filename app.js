@@ -162,42 +162,46 @@ app.post('/api/rondas/:rondaId/songs', async (req, res) => {
 
 // Votar canción
 app.post('/api/rondas/:rondaId/songs/:songId/vote', async (req, res) => {
- try {
-   const { rondaId, songId } = req.params;
-   const { score } = req.body;
-   const userId = 1; // Usuario de prueba
+  try {
+    const { rondaId, songId } = req.params;
+    const { score } = req.body;
+    const userId = 1; // Usuario de prueba
 
-   // Verificar si la ronda existe y está activa
-   const rondaCheck = await pool.query(
-     'SELECT status FROM rondas WHERE id = $1',
-     [rondaId]
-   );
+    console.log('Intento de voto:', { rondaId, songId, score }); // Log para debugging
 
-   if (rondaCheck.rows.length === 0) {
-     return res.status(404).json({ error: 'Ronda no encontrada' });
-   }
+    // Verificar si la canción existe
+    const songCheck = await pool.query(
+      'SELECT * FROM songs WHERE id = $1 AND ronda_id = $2',
+      [songId, rondaId]
+    );
 
-   // Verificar voto existente
-   const voteCheck = await pool.query(
-     'SELECT * FROM votes WHERE song_id = $1 AND user_id = $2',
-     [songId, userId]
-   );
+    if (songCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Canción no encontrada' });
+    }
 
-   if (voteCheck.rows.length > 0) {
-     return res.status(400).json({ error: 'Ya has votado esta canción' });
-   }
+    // Verificar voto existente
+    const voteCheck = await pool.query(
+      'SELECT * FROM votes WHERE song_id = $1 AND user_id = $2',
+      [songId, userId]
+    );
 
-   // Registrar voto
-   await pool.query(
-     'INSERT INTO votes (song_id, user_id, score) VALUES ($1, $2, $3)',
-     [songId, userId, score]
-   );
+    if (voteCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'Ya has votado esta canción' });
+    }
 
-   res.json({ message: 'Voto registrado con éxito' });
- } catch (error) {
-   console.error('Error voting:', error);
-   res.status(500).json({ error: 'Error al registrar el voto' });
- }
+    // Registrar voto
+    const result = await pool.query(
+      'INSERT INTO votes (song_id, user_id, score) VALUES ($1, $2, $3) RETURNING *',
+      [songId, userId, score]
+    );
+
+    console.log('Voto registrado:', result.rows[0]); // Log para debugging
+
+    res.status(200).json({ message: 'Voto registrado con éxito' });
+  } catch (error) {
+    console.error('Error al votar:', error);
+    res.status(500).json({ error: 'Error al registrar el voto' });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
